@@ -1,35 +1,30 @@
 import logging
-import os
 import sys
 import requests
 import time
 from http import HTTPStatus
-from dotenv import load_dotenv
 from telegram import Bot
+
+from logger import set_logging
+
+from config import (
+    RETRY_TIME,
+    HOST,
+    HEADERS,
+    HOMEWORK_STATUSES
+)
+
+from env_vars import (
+    PRACTICUM_TOKEN,
+    TELEGRAM_TOKEN,
+    TELEGRAM_CHAT_ID
+)
 
 from exceptions import (
     EndpointNotAvailable,
     HTTPStatusNotOK,
-    UnknownHomeworkStatus
+    UnknownHomeworkStatus,
 )
-
-load_dotenv()
-
-
-PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-
-RETRY_TIME = 600
-ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
-HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-
-
-HOMEWORK_STATUSES = {
-    'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
-    'reviewing': 'Работа взята на проверку ревьюером.',
-    'rejected': 'Работа проверена: у ревьюера есть замечания.'
-}
 
 
 logger = logging.getLogger(__name__)
@@ -40,29 +35,39 @@ def send_message(bot, message) -> None:
     """Отправка сообщения в Telegram чат."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, text=message)
-        logger.info(f"Сообщение '{message}' в чат успешно отправлено")
     except Exception as error:
         logger.error(f'Ошибка при отправка сообщения {message}: {error}')
+    else:
+        logger.info(f'Сообщение успешно отправлено в чат {TELEGRAM_CHAT_ID}')
 
 
 def get_api_answer(current_timestamp) -> dict:
     """Осуществление запроса к эндпоинту API-сервиса Практикум.Домашка."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
+    api_var = '/api/user_api/homework_statuses/'
+    endpoint = HOST + api_var
     try:
         response = requests.get(
-            ENDPOINT,
+            endpoint,
             params=params,
             headers=HEADERS,
         )
-    except Exception as error:
+    except requests.exceptions.RequestException as error:
         message = f'Ошибка при осуществлении запроса к эндпоинту: {error}'
         raise EndpointNotAvailable(message)
     response_status = response.status_code
     if response_status != HTTPStatus.OK:
-        message = f'Эндпоинт недоступен, статус: {response_status}'
+        status_msg = f'Эндпоинт недоступен, статус: {response_status}. '
+        error_msg = f'Подробнее: {response.text}'
+        message = status_msg + error_msg
         raise HTTPStatusNotOK(message)
-    response = response.json()
+    try:
+        response = response.json()
+    except Exception as error:
+        message = f'Ошибка трансформации ответа в формат json: {error}'
+        raise requests.exceptions.InvalidJSONError(message)
+    logging.info('Запрос к эндпоинту осуществлен успешно.')
     return response
 
 
@@ -73,7 +78,8 @@ def check_response(response) -> list:
     homeworks = response.get('homeworks')
     if homeworks is None:
         raise KeyError(
-            'Ответ API не содержит сведений о домашних работах'
+            'Ответ API не содержит сведений о домашних работах. '
+            'Содержимое ответа API: ', response
         )
     current_date = response.get('current_date')
     if current_date is None:
@@ -160,12 +166,5 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - [%(levelname)s] - %(message)s',
-        handlers=[logging.FileHandler(
-            'main.log',
-            mode='w',
-            encoding='UTF-8')]
-    )
+    set_logging()
     main()
