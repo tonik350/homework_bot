@@ -2,7 +2,6 @@ import logging
 import sys
 import requests
 import time
-from http import HTTPStatus
 from telegram import Bot
 
 from logger import set_logging
@@ -11,7 +10,8 @@ from config import (
     RETRY_TIME,
     HOST,
     HEADERS,
-    HOMEWORK_STATUSES
+    HOMEWORK_STATUSES,
+    HTTP_STATUSES_URL
 )
 
 from env_vars import (
@@ -22,13 +22,11 @@ from env_vars import (
 
 from exceptions import (
     EndpointNotAvailable,
-    HTTPStatusNotOK,
     UnknownHomeworkStatus,
 )
 
 
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 def send_message(bot, message) -> None:
@@ -45,7 +43,7 @@ def get_api_answer(current_timestamp) -> dict:
     """Осуществление запроса к эндпоинту API-сервиса Практикум.Домашка."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    api_var = '/api/user_api/homework_statuses/'
+    api_var = 'user_api/homework_statuses/'
     endpoint = HOST + api_var
     try:
         response = requests.get(
@@ -56,12 +54,20 @@ def get_api_answer(current_timestamp) -> dict:
     except requests.exceptions.RequestException as error:
         message = f'Ошибка при осуществлении запроса к эндпоинту: {error}'
         raise EndpointNotAvailable(message)
+    http_error_msg = ''
     response_status = response.status_code
-    if response_status != HTTPStatus.OK:
-        status_msg = f'Эндпоинт недоступен, статус: {response_status}. '
-        error_msg = f'Подробнее: {response.text}'
-        message = status_msg + error_msg
-        raise HTTPStatusNotOK(message)
+    if 400 <= response_status < 500:
+        http_error_msg = (
+            f'Ошибка клиента. Код: {response_status}. '
+            f'Подробнее: {HTTP_STATUSES_URL}{response_status}'
+        )
+    elif 500 <= response_status < 600:
+        http_error_msg = (
+            f'Ошибка сервера. Код: {response_status}. '
+            f'Подробнее: {HTTP_STATUSES_URL}{response_status}'
+        )
+    if http_error_msg:
+        raise requests.exceptions.HTTPError(http_error_msg, response=response)
     try:
         response = response.json()
     except Exception as error:
