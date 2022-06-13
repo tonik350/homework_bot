@@ -33,10 +33,9 @@ def send_message(bot, message) -> None:
     """Отправка сообщения в Telegram чат."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, text=message)
+        logger.info(f'Сообщение успешно отправлено в чат {TELEGRAM_CHAT_ID}')
     except Exception as error:
         logger.error(f'Ошибка при отправка сообщения {message}: {error}')
-    else:
-        logger.info(f'Сообщение успешно отправлено в чат {TELEGRAM_CHAT_ID}')
 
 
 def get_api_answer(current_timestamp) -> dict:
